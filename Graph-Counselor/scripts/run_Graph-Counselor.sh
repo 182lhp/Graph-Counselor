@@ -1,3 +1,4 @@
+source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate graphcounselor
 
 # is_correct model
@@ -15,20 +16,21 @@ CUDA_VISIBLE_DEVICES=1,2,3,4 python -m vllm.entrypoints.openai.api_server \
     --port 8020 \
     --host 0.0.0.0 --gpu-memory-utilization 0.85 > ../scripts/server_test.log 2>&1 &
 
-sleep 300
-
-curl -s http://0.0.0.0:8010/v1/completions >/dev/null
-if [ $? -ne 0 ]; then
-    echo "vllm fails, please check the log"
-    exit 1
-fi
-echo "vllm activates"
-
-curl -s http://0.0.0.0:8020/v1/completions >/dev/null
-if [ $? -ne 0 ]; then
-    echo "vllm fails, please check the log"
-    exit 1
-fi
+# 轮询等待两个 vLLM 服务就绪，最多等 10 分钟
+echo "Waiting for vLLM servers to be ready..."
+for port in 8010 8020; do
+    elapsed=0
+    until curl -s http://0.0.0.0:${port}/v1/models >/dev/null 2>&1; do
+        if [ $elapsed -ge 600 ]; then
+            echo "vllm port ${port} failed to start in 10 minutes, check the log"
+            exit 1
+        fi
+        sleep 10
+        elapsed=$((elapsed + 10))
+        echo "  waiting for port ${port}... ${elapsed}s"
+    done
+    echo "vllm port ${port} is ready"
+done
 echo "vllm activates, start running main script"
 
 OPENAI_KEY="not real"
